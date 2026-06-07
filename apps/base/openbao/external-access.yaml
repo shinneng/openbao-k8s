@@ -1,0 +1,39 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openbao-gateway
+  namespace: istio-system
+spec:
+  gatewayClassName: istio
+  listeners:
+  - name: https
+    port: 443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: openbao-server-tls # Reusing or using a dedicated public cert
+        namespace: openbao
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openbao-route
+  namespace: openbao
+spec:
+  parentRefs:
+  - name: openbao-gateway
+    namespace: istio-system
+  hostnames:
+  - "bao.example.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: openbao
+      port: 8200

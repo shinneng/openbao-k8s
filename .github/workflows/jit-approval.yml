@@ -1,0 +1,46 @@
+name: JIT SSH Approval & Storage
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: 'Your SSH Public Key (contents of ~/.ssh/id_rsa.pub)'
+        required: true
+        type: string
+      target_env:
+        description: 'Target Environment'
+        required: true
+        default: 'production'
+        type: choice
+        options: [production, staging]
+
+jobs:
+  approve-and-sign:
+    name: Approve and Sign Key
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.target_env }} # PIM-like Approval Gate
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Authenticate with OpenBao (OIDC)
+        run: |
+          export BAO_ADDR="https://bao.example.com"
+          JWT=$(curl -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com/shinneng/openbao-k8s" | jq -r .value)
+          BAO_TOKEN=$(bao write -format=json auth/jwt/login role=github-actions-role jwt="$JWT" | jq -r .auth.client_token)
+          echo "BAO_TOKEN=$BAO_TOKEN" >> $GITHUB_ENV
+
+      - name: Sign Key
+        run: |
+          echo "${{ github.event.inputs.public_key }}" > user_key.pub
+          bao write -field=signed_key ssh-client-signer/sign/production-role \
+              public_key=@user_key.pub \
+              ttl=2h > signed_cert.pub
+
+      - name: Store Signed Certificate Securely
+        run: |
+          # Store in OpenBao KV engine under a path specific to the requesting user
+          bao kv put ssh-certs/jit/${{ github.actor }} \
+              certificate=@signed_cert.pub \
+              request_id=${{ github.run_id }}
+          echo "Certificate stored in OpenBao. Use retrieve-and-run.sh to fetch and execute."

@@ -1,0 +1,37 @@
+---
+- name: Retrieve JIT Signed Certificate from OpenBao
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # These should be passed as variables from the platform (Semaphore/AWX)
+    github_user: "{{ lookup('env', 'GITHUB_USER') }}"
+    cert_save_path: "~/.ssh/id_rsa-cert.pub"
+    bao_addr: "{{ lookup('env', 'BAO_ADDR') | default('https://bao.example.com', true) }}"
+
+  tasks:
+    - name: Ensure GITHUB_USER is provided
+      ansible.builtin.fail:
+        msg: "GITHUB_USER environment variable or variable is not defined."
+      when: github_user | length == 0
+
+    - name: Fetch Signed Certificate from OpenBao KV
+      ansible.builtin.uri:
+        url: "{{ bao_addr }}/v1/ssh-certs/data/jit/{{ github_user }}"
+        method: GET
+        headers:
+          X-Bao-Token: "{{ lookup('env', 'BAO_TOKEN') }}"
+        status_code: 200
+      register: bao_response
+
+    - name: Save Certificate to disk
+      ansible.builtin.copy:
+        content: "{{ bao_response.json.data.data.certificate }}"
+        dest: "{{ cert_save_path | expanduser }}"
+        mode: '0600'
+      no_log: true # Prevent certificate content from appearing in logs
+
+    - name: Verify certificate file exists
+      ansible.builtin.stat:
+        path: "{{ cert_save_path | expanduser }}"
+      register: cert_status
+      failed_when: not cert_status.stat.exists

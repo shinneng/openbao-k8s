@@ -1,0 +1,82 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: openbao
+  namespace: openbao
+spec:
+  releaseName: openbao
+  chart:
+    spec:
+      chart: openbao
+      sourceRef:
+        kind: HelmRepository
+        name: openbao
+        namespace: flux-system
+  interval: 1h
+  values:
+    global:
+      enabled: true
+      tlsDisable: false
+    server:
+      image:
+        repository: quay.io/openbao/openbao
+        tag: latest
+      ha:
+        enabled: true
+        replicas: 3
+        raft:
+          enabled: true
+          setNodeId: true
+          config: |
+            ui = true
+            listener "tcp" {
+              address = "[::]:8200"
+              cluster_address = "[::]:8201"
+              tls_cert_file = "/bao/userconfig/openbao-server-tls/tls.crt"
+              tls_key_file = "/bao/userconfig/openbao-server-tls/tls.key"
+              tls_client_ca_file = "/bao/userconfig/openbao-server-tls/ca.crt"
+            }
+            storage "raft" {
+              path = "/bao/data"
+            }
+            service_registration "kubernetes" {}
+      # Anti-pod affinity implementation
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - openbao
+                  - key: app.kubernetes.io/instance
+                    operator: In
+                    values:
+                      - openbao
+                  - key: component
+                    operator: In
+                    values:
+                      - server
+              topologyKey: "kubernetes.io/hostname"
+      # Mount certificates
+      extraVolumes:
+        - name: openbao-server-tls
+          secret:
+            secretName: openbao-server-tls
+      extraVolumeMounts:
+        - name: openbao-server-tls
+          mountPath: /bao/userconfig/openbao-server-tls
+          readOnly: true
+      # Ingress/Gateway API could be added here
+    injector:
+      enabled: true
+      agentDefaults:
+        # TLS configuration for OpenBao Agent
+        templateConfig:
+          exitOnRetryFailure: true
+        # Ensure agent uses TLS
+        extraVolumes:
+          - name: openbao-server-tls
+            secret:
+              secretName: openbao-server-tls

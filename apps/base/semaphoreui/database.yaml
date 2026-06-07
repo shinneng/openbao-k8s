@@ -1,0 +1,20 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: semaphore-db
+  namespace: semaphoreui
+spec:
+  instances: 2
+  storage:
+    size: 10Gi
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.1
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: semaphore-db-creds
+  namespace: semaphoreui
+type: Opaque
+stringData:
+  username: semaphore
+  password: semaphorepassword # In production, use a sealed secret or external secret

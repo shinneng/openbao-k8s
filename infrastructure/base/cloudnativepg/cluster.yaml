@@ -1,0 +1,29 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgresql-ha
+  namespace: database
+spec:
+  instances: 3
+  
+  # High Availability with Anti-Pod Affinity
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: cnpg.io/cluster
+            operator: In
+            values:
+            - postgresql-ha
+        topologyKey: "kubernetes.io/hostname"
+
+  storage:
+    size: 10Gi
+
+  # Use a specific version
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.1
+
+  # Monitoring could be added here
+  monitoring:
+    enablePodMonitor: true

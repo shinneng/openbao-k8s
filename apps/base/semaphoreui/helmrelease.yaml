@@ -1,0 +1,31 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: semaphoreui
+  namespace: semaphoreui
+spec:
+  releaseName: semaphore
+  chart:
+    spec:
+      chart: semaphore
+      sourceRef:
+        kind: HelmRepository
+        name: semaphoreui
+        namespace: flux-system
+  interval: 1h
+  dependsOn:
+    - name: cnpg-operator # Ensure operator is ready
+  values:
+    image:
+      repository: semaphoreui/semaphore
+      tag: latest
+    env:
+      SEMAPHORE_DB_DIALECT: postgres
+      SEMAPHORE_DB_HOST: semaphore-db-rw # CNPG read-write service
+      SEMAPHORE_DB_PORT: "5432"
+      SEMAPHORE_DB_USER: semaphore
+      SEMAPHORE_DB_PASS: semaphorepassword
+      SEMAPHORE_DB: semaphore
+    # Expose via Istio (could be added to external-access.yaml)
+    service:
+      type: ClusterIP

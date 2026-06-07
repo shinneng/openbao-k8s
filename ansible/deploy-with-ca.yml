@@ -1,0 +1,32 @@
+---
+- name: Deploy with Signed SSH Key
+  hosts: all
+  gather_facts: false
+  vars:
+    bao_addr: "https://bao.example.com"
+    ssh_role: "production-role"
+    public_key_file: "~/.ssh/id_rsa.pub"
+    cert_file: "~/.ssh/id_rsa-cert.pub"
+
+  pre_tasks:
+    - name: Sign SSH Public Key locally using OpenBao
+      delegate_to: localhost
+      ansible.builtin.shell:
+        cmd: "bao write -field=signed_key ssh-client-signer/sign/{{ ssh_role }} public_key=@{{ public_key_file | expanduser }} > {{ cert_file | expanduser }}"
+      run_once: true
+
+    - name: Verify Signed Certificate exists
+      delegate_to: localhost
+      ansible.builtin.stat:
+        path: "{{ cert_file | expanduser }}"
+      register: cert_stat
+      run_once: true
+      failed_when: not cert_stat.stat.exists
+
+  tasks:
+    - name: Verify connectivity with signed key
+      ansible.builtin.ping:
+
+    - name: Execute production tasks
+      ansible.builtin.debug:
+        msg: "Executing tasks as a signed user: {{ ansible_user }}"

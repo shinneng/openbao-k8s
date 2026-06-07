@@ -1,0 +1,39 @@
+---
+- name: Configure Target Nodes to Trust OpenBao SSH CA
+  hosts: all
+  become: true
+  vars:
+    bao_addr: "https://bao.example.com"
+    ssh_ca_path: "ssh-client-signer"
+    ca_public_key_path: "/etc/ssh/trusted-user-ca-keys.pem"
+
+  tasks:
+    - name: Fetch SSH CA Public Key from OpenBao (Local)
+      delegate_to: localhost
+      become: false
+      ansible.builtin.shell:
+        cmd: "bao read -field=public_key {{ ssh_ca_path }}/config/ca"
+      register: bao_ca_pub
+      failed_when: bao_ca_pub.rc != 0
+
+    - name: Ensure CA Public Key exists on target node
+      ansible.builtin.copy:
+        content: "{{ bao_ca_pub.stdout }}"
+        dest: "{{ ca_public_key_path }}"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Configure SSHD to trust the CA
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?TrustedUserCAKeys'
+        line: "TrustedUserCAKeys {{ ca_public_key_path }}"
+        state: present
+      notify: Restart SSHD
+
+  handlers:
+    - name: Restart SSHD
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
