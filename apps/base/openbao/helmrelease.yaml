@@ -60,11 +60,11 @@ spec:
                       - server
               topologyKey: "kubernetes.io/hostname"
       # Mount certificates
-      extraVolumes:
+      volumes:
         - name: openbao-server-tls
           secret:
             secretName: openbao-server-tls
-      extraVolumeMounts:
+      volumeMounts:
         - name: openbao-server-tls
           mountPath: /bao/userconfig/openbao-server-tls
           readOnly: true

@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: dev-stack
+  namespace: flux-system
+
+resources:
+  - ../../infrastructure/sources
+  - ../../infrastructure/base/gateway-api
+  - ../../infrastructure/base/cert-manager
+  - ../../infrastructure/base/istio
+  - ../../infrastructure/base/cloudnativepg
+  - ../../apps/base/openbao
+  - ../../apps/base/external-secrets
+  - ../../apps/base/semaphoreui
+
+patches:
+  - path: patches/openbao-patch.yaml
+    target:
+      group: helm.toolkit.fluxcd.io
+      kind: HelmRelease
+      name: openbao
+  - path: patches/cnpg-patch.yaml
+    target:
+      group: postgresql.cnpg.io
+      kind: Cluster
+      name: postgresql-ha
+  - path: patches/semaphore-db-patch.yaml
+    target:
+      group: postgresql.cnpg.io
+      kind: Cluster
+      name: semaphore-db

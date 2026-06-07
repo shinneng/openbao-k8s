@@ -14,7 +14,8 @@ spec:
         namespace: flux-system
   interval: 1h
   dependsOn:
-    - name: cnpg-operator # Ensure operator is ready
+    - name: cnpg-operator
+      namespace: cnpg-system
   values:
     image:
       repository: semaphoreui/semaphore

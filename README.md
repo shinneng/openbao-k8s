@@ -53,5 +53,18 @@ This repository provides a complete "Secrets-as-Code" infrastructure including:
 2. **Setup Secrets**:
    Create the `openbao-root-token` secret in the `openbao` namespace to allow the automation job to configure the engines.
 
+## 🧪 Local Development
+
+To test this stack locally on a single-node cluster (like `kind`), use the provided setup script. It will create a cluster, install necessary CRDs, and apply patches to relax High Availability constraints (reducing replica counts for a single node).
+
+```bash
+./scripts/setup-local-dev.sh
+```
+
+### Prerequisites
+- [kind](https://kind.sigs.k8s.io/docs/user/quick-start/)
+- [kubectl](https://kubernetes.io/docs/tasks/tools/)
+- [flux CLI](https://fluxcd.io/flux/installation/)
+
 ## 📄 License
 MIT
