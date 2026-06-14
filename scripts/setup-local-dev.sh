@@ -134,15 +134,45 @@ if [ -z "$POD" ]; then
 else
     # Wait until bao CLI responds with JSON status (may return non-zero if not ready)
     echo "⏳ Waiting for bao status endpoint to respond..."
+    # Use the in-cluster service name for internal calls. Use the bao CLI flag to skip TLS verification.
+    # This matches the environment used in the cluster ConfigJob (see apps/base/openbao/config-job.yaml)
+    IN_POD_BAO_ADDR="https://openbao.openbao.svc:8200"
+
     for i in {1..60}; do
-        if kubectl -n openbao exec "$POD" -- bao status -format=json > /tmp/bao_status.json 2>/dev/null; then
+        # capture both stdout and stderr so we can inspect TLS errors if they occur
+    kubectl -n openbao exec "$POD" -- env BAO_ADDR="$IN_POD_BAO_ADDR" bao status -tls-skip-verify -format=json > /tmp/bao_status.json 2>/tmp/bao_status.err || true
+        if [ -s /tmp/bao_status.json ]; then
+            break
+        fi
+        # If we have an error mentioning TLS / x509, break to try a port-forward fallback
+        if grep -qiE "tls:|x509|cannot validate certificate|SAN" /tmp/bao_status.err 2>/dev/null; then
+            echo "⚠️  TLS verification error detected when querying bao status inside pod; will try port-forward fallback."
             break
         fi
         sleep 3
     done
 
     if [ ! -s /tmp/bao_status.json ]; then
-        echo "⚠️  Could not get bao status JSON; skipping auto-init/unseal."
+        # If we captured a TLS cert validation error from the in-pod attempt, try a port-forward + curl fallback
+        if grep -qiE "tls:|x509|cannot validate certificate|127.0.0.1" /tmp/bao_status.err 2>/dev/null; then
+            echo "🔁 Attempting port-forward fallback to query OpenBao seal status..."
+            kubectl -n openbao port-forward svc/openbao 8200:8200 >/dev/null 2>&1 &
+            PF_PID=$!
+            # give port-forward a moment
+            sleep 1
+            # use curl -k to skip TLS verification on localhost
+            if curl -skS https://127.0.0.1:8200/v1/sys/seal-status -o /tmp/bao_status.json 2>/tmp/bao_status.err; then
+                echo "✅ Retrieved seal status via port-forward."
+            else
+                echo "⚠️  Port-forward fallback failed: $(sed -n '1,5p' /tmp/bao_status.err)"
+            fi
+            # cleanup port-forward
+            kill $PF_PID >/dev/null 2>&1 || true
+        fi
+
+        if [ ! -s /tmp/bao_status.json ]; then
+            echo "⚠️  Could not get bao status JSON; skipping auto-init/unseal."
+        fi
     else
         INIT=$(python3 - <<'PY'
 import json,sys
@@ -156,7 +186,7 @@ PY
 
         if [ "$INITIALIZED" = "0" ]; then
             echo "🔧 OpenBao is not initialized. Initializing (1 key share / threshold 1)..."
-            INIT_OUT=$(kubectl -n openbao exec "$POD" -- bao operator init -format=json -key-shares=1 -key-threshold=1 2>/dev/null || true)
+            INIT_OUT=$(kubectl -n openbao exec "$POD" -- env BAO_ADDR="$IN_POD_BAO_ADDR" bao operator init -tls-skip-verify -format=json -key-shares=1 -key-threshold=1 2>/dev/null || true)
             if [ -z "$INIT_OUT" ]; then
                 echo "❌ Initialization failed or did not return JSON. Check pod logs: kubectl -n openbao logs $POD"
             else
@@ -182,7 +212,7 @@ PY
                     echo "🔓 Unsealing OpenBao server pods..."
                     for p in $(kubectl -n openbao get pods -l app.kubernetes.io/name=openbao -o jsonpath='{.items[*].metadata.name}'); do
                         echo "Unsealing $p..."
-                        kubectl -n openbao exec "$p" -- bao operator unseal "$UNSEAL_KEY" || true
+                        kubectl -n openbao exec "$p" -- env BAO_ADDR="$IN_POD_BAO_ADDR" bao operator unseal -tls-skip-verify "$UNSEAL_KEY" || true
                     done
                     echo "✅ Unseal commands issued."
                 fi
@@ -202,7 +232,7 @@ PY
                 if [ -n "$USE_KEY" ]; then
                     for p in $(kubectl -n openbao get pods -l app.kubernetes.io/name=openbao -o jsonpath='{.items[*].metadata.name}'); do
                         echo "Unsealing $p..."
-                        kubectl -n openbao exec "$p" -- bao operator unseal "$USE_KEY" || true
+                        kubectl -n openbao exec "$p" -- env BAO_ADDR="$IN_POD_BAO_ADDR" bao operator unseal -tls-skip-verify "$USE_KEY" || true
                     done
                     echo "✅ Unseal commands issued."
                 else
