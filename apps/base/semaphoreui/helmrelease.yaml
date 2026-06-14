@@ -20,13 +20,12 @@ spec:
     image:
       repository: semaphoreui/semaphore
       tag: latest
-    env:
-      SEMAPHORE_DB_DIALECT: postgres
-      SEMAPHORE_DB_HOST: semaphore-db-rw # CNPG read-write service
-      SEMAPHORE_DB_PORT: "5432"
-      SEMAPHORE_DB_USER: semaphore
-      SEMAPHORE_DB_PASS: semaphorepassword
-      SEMAPHORE_DB: semaphore
+    database:
+      type: postgres
+      host: semaphore-db-rw
+      port: 5432
+      name: semaphore
+      existingSecret: semaphore-db-creds
     # Expose via Istio (could be added to external-access.yaml)
     service:
       type: ClusterIP

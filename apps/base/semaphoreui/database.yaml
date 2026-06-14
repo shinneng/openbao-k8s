@@ -8,6 +8,12 @@ spec:
   storage:
     size: 10Gi
   imageName: ghcr.io/cloudnative-pg/postgresql:16.1
+  bootstrap:
+    initdb:
+      database: semaphore
+      owner: semaphore
+      secret:
+        name: semaphore-db-creds
 ---
 apiVersion: v1
 kind: Secret

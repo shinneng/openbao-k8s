@@ -54,6 +54,10 @@ spec:
         name: istio
         namespace: flux-system
   interval: 1h
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
   dependsOn:
     - name: istiod
   values:

@@ -19,7 +19,7 @@ spec:
       tlsDisable: false
     server:
       image:
-        repository: quay.io/openbao/openbao
+        repository: openbao/openbao
         tag: latest
       ha:
         enabled: true
@@ -37,7 +37,7 @@ spec:
               tls_client_ca_file = "/bao/userconfig/openbao-server-tls/ca.crt"
             }
             storage "raft" {
-              path = "/bao/data"
+              path = "/openbao/data"
             }
             service_registration "kubernetes" {}
       # Anti-pod affinity implementation
