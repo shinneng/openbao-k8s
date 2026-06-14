@@ -1,0 +1,8 @@
+# Ignore runtime secrets and local overrides
+secrets/
+
+# Keep other common IDE/editor files out
+.vscode/
+*.swp
+*.swo
+__pycache__/
