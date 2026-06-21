@@ -18,37 +18,40 @@ data:
     done
     echo "OpenBao is ready."
 
-    # 1. Enable SSH CA if not already enabled
+    # 1. Enable SSH CA for Client-Side Dynamic Signing
     if ! bao secrets list | grep -q "ssh-client-signer/"; then
-      echo "Enabling SSH Secrets Engine..."
+      echo "Enabling SSH Client Secrets Engine..."
       bao secrets enable -path=ssh-client-signer ssh
-      bao write ssh-client-signer/config/ca generate_signing_key=true
+      # FIXED: Changed generate_signing_key=true to generate=true
+      bao write ssh-client-signer/config/ca generate=true
+      # IMPROVED: Locked down allowed_users from '*' to dedicated ops accounts
       bao write ssh-client-signer/roles/production-role \
           allow_user_certificates=true \
-          allowed_users="*" \
+          allowed_users="ubuntu,ansible" \
           default_user="ubuntu" \
           ttl="30m0s"
     fi
 
-    # 1b. Enable SSH Host Signer if not already enabled
+    # 2. Enable SSH Host Signer (To verify server identity back to engineers)
     if ! bao secrets list | grep -q "ssh-host-signer/"; then
       echo "Enabling SSH Host Signer..."
       bao secrets enable -path=ssh-host-signer ssh
-      bao write ssh-host-signer/config/ca generate_signing_key=true
+      # FIXED: Changed generate_signing_key=true to generate=true
+      bao write ssh-host-signer/config/ca generate=true
       bao write ssh-host-signer/roles/hostrole \
           key_type=host \
           allow_any_host=true \
           ttl="8760h"
     fi
 
-    # 2. Enable Transit for PII if not already enabled
+    # 3. Enable Transit for PII
     if ! bao secrets list | grep -q "transit/"; then
       echo "Enabling Transit Secrets Engine..."
       bao secrets enable transit
       bao write -f transit/keys/pii-data-key
     fi
 
-    # 3. Enable AppRole if not already enabled
+    # 4. Enable AppRole Auth Method & Policy for Applications
     if ! bao auth list | grep -q "approle/"; then
       echo "Enabling AppRole Auth Method..."
       bao auth enable approle
@@ -63,17 +66,13 @@ data:
           policies="web-app"
     fi
 
-    # 4. Enable KV engine for SSH Certificate Storage
-    if ! bao secrets list | grep -q "ssh-certs/"; then
-      echo "Enabling SSH Certs KV Engine..."
-      bao secrets enable -path=ssh-certs kv-v2
-    fi
-
-    # 5. Create policy for JIT retrieval
-    echo "Creating JIT Retrieval Policy..."
-    bao policy write jit-retrieval - <<EOF
-    path "ssh-certs/data/jit/*" { capabilities = ["read", "delete"] }
-    path "ssh-certs/metadata/jit/*" { capabilities = ["list", "delete"] }
+    # 5. NEW: Policy for Engineers running retrieve-and-run.sh
+    # Grants execution rights to the dynamic SSH endpoint instead of the old KV block
+    echo "Creating Engineer JIT SSH Signing Policy..."
+    bao policy write engineer-ssh - <<EOF
+    path "ssh-client-signer/sign/production-role" {
+      capabilities = ["update"]
+    }
     EOF
 
     echo "Configuration complete."
@@ -88,7 +87,8 @@ spec:
     spec:
       containers:
       - name: setup
-        image: quay.io/openbao/openbao:latest
+        # Replaced 'latest' with a stable tagged version for deterministic cluster building
+        image: openbao/openbao:2.5.4
         command: ["/bin/sh", "/scripts/setup.sh"]
         env:
         - name: BAO_TOKEN
