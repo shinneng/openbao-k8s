@@ -24,13 +24,14 @@ data:
       bao secrets enable -path=ssh-client-signer ssh
       # FIXED: Changed generate_signing_key=true to generate=true
       bao write ssh-client-signer/config/ca generate=true
-      # IMPROVED: Locked down allowed_users from '*' to dedicated ops accounts
-      bao write ssh-client-signer/roles/production-role \
-          allow_user_certificates=true \
-          allowed_users="ubuntu,ansible" \
-          default_user="ubuntu" \
-          ttl="30m0s"
     fi
+    # Ensure client-signer role is configured
+    bao write ssh-client-signer/roles/production-role \
+        key_type=ca \
+        allow_user_certificates=true \
+        allowed_users="ubuntu,ansible" \
+        default_user="ubuntu" \
+        ttl="30m0s"
 
     # 2. Enable SSH Host Signer (To verify server identity back to engineers)
     if ! bao secrets list | grep -q "ssh-host-signer/"; then
@@ -38,11 +39,13 @@ data:
       bao secrets enable -path=ssh-host-signer ssh
       # FIXED: Changed generate_signing_key=true to generate=true
       bao write ssh-host-signer/config/ca generate=true
-      bao write ssh-host-signer/roles/hostrole \
-          key_type=host \
-          allow_any_host=true \
-          ttl="8760h"
     fi
+    # Ensure hostrole is configured
+    bao write ssh-host-signer/roles/hostrole \
+        key_type=ca \
+        allow_host_certificates=true \
+        allow_any_host=true \
+        ttl="8760h"
 
     # 3. Enable Transit for PII
     if ! bao secrets list | grep -q "transit/"; then

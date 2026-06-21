@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ssh-test-target
+  namespace: openbao
+  labels:
+    app: ssh-test-target
+spec:
+  containers:
+  - name: sshd
+    image: ubuntu:22.04
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      set -e
+      # Update and install OpenSSH server and curl
+      apt-get update && apt-get install -y openssh-server curl
+      mkdir -p /var/run/sshd
+
+      # Create user 'ubuntu' (allowed by OpenBao production-role)
+      # We unlock the password (passwd -d) but rely purely on key authentication.
+      if ! id -u ubuntu >/dev/null 2>&1; then
+        useradd -m -s /bin/bash ubuntu
+        passwd -d ubuntu
+      fi
+
+      # Fetch OpenBao SSH Client CA public key (unauthenticated endpoint)
+      echo "Fetching CA public key from OpenBao..."
+      curl -k -s https://openbao.openbao.svc:8200/v1/ssh-client-signer/public_key > /etc/ssh/trusted-user-ca-keys.pem
+
+      if [ ! -s /etc/ssh/trusted-user-ca-keys.pem ]; then
+        echo "Error: Failed to fetch CA public key!"
+        exit 1
+      fi
+
+      echo "Successfully fetched CA public key:"
+      cat /etc/ssh/trusted-user-ca-keys.pem
+
+      # Configure sshd to trust the CA public key
+      echo "TrustedUserCAKeys /etc/ssh/trusted-user-ca-keys.pem" >> /etc/ssh/sshd_config
+      echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+
+      # Start sshd in the foreground with verbose logs
+      echo "Starting SSH server..."
+      exec /usr/sbin/sshd -D -e
+    ports:
+    - containerPort: 22
+      name: ssh
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ssh-test-target
+  namespace: openbao
+spec:
+  selector:
+    app: ssh-test-target
+  ports:
+  - protocol: TCP
+    port: 22
+    targetPort: 22
+  type: ClusterIP
