@@ -99,3 +99,56 @@ ssh -o StrictHostKeyChecking=no \
 > The `-o IdentitiesOnly=yes` flag ensures that the SSH client only attempts the keys specified by the `-i` flag, preventing any local keys from your SSH agent from triggering "Too many authentication failures" on the server.
 
 If successful, you will log straight in as the `ubuntu` user without any password prompts or pre-shared keys!
+
+---
+
+## 4. Testing with Ansible Playbook
+
+You can test the Ansible playbook `setup-ca.yml` to automatically configure the SSH server to trust OpenBao's CA.
+
+### Step 4a: Start the Pod and Port-Forward
+First, deploy the updated target pod (which starts up *without* CA trust configured) and port-forward port 22:
+```bash
+kubectl apply -f ssh-test-target.yaml
+kubectl port-forward -n openbao pod/ssh-test-target 2222:22
+```
+
+### Step 4b: Verify CA is not trusted initially
+If you attempt to SSH using a signed certificate *before* running the playbook, it will fail (or prompt for password):
+```bash
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -i ./test_id_rsa -i ./test_id_rsa-cert.pub -p 2222 ubuntu@127.0.0.1
+# Result: Password prompt (since trust isn't configured yet)
+```
+
+### Step 4c: Port-Forward the OpenBao API
+Ensure OpenBao is accessible locally so the playbook can read the public key:
+```bash
+kubectl port-forward -n openbao svc/openbao 8200:8200
+```
+Then export the connection environment variables (or ensure your local `bao` CLI is logged in):
+```bash
+export BAO_ADDR="https://127.0.0.1:8200"
+export BAO_SKIP_VERIFY=true
+export BAO_TOKEN=$(kubectl get secret -n openbao openbao-root-token -o jsonpath='{.data.token}' | base64 --decode)
+```
+
+### Step 4d: Run the Playbook
+Run the Ansible playbook using the provided test inventory `ansible/test-inventory.ini`:
+```bash
+ansible-playbook -i ansible/test-inventory.ini ansible/setup-ca.yml --extra-vars "bao_addr=$BAO_ADDR"
+```
+
+*Note: Since the pod runs inside a container, a mock service helper `/usr/sbin/service` intercepts the `service ssh restarted` call from Ansible and reloads `sshd` without terminating the container.*
+
+### Step 4e: Verify SSH Certificate Authentication
+After the playbook completes successfully, verify that the SSH server now trusts the OpenBao CA by connecting using your signed certificate:
+```bash
+ssh -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o IdentitiesOnly=yes \
+    -i ./test_id_rsa \
+    -i ./test_id_rsa-cert.pub \
+    -p 2222 \
+    ubuntu@127.0.0.1
+```
+You should log straight in without any password prompt!

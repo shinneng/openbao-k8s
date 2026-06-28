@@ -13,32 +13,48 @@ spec:
     args:
     - |
       set -e
-      # Update and install OpenSSH server and curl
-      apt-get update && apt-get install -y openssh-server curl
+      # Update and install OpenSSH server, curl, python3, and sudo
+      apt-get update && apt-get install -y openssh-server curl python3 sudo
       mkdir -p /var/run/sshd
 
       # Create user 'ubuntu' (allowed by OpenBao production-role)
-      # We unlock the password (passwd -d) but rely purely on key authentication.
       if ! id -u ubuntu >/dev/null 2>&1; then
         useradd -m -s /bin/bash ubuntu
-        passwd -d ubuntu
       fi
+      # Set password of ubuntu to ubuntu for bootstrapping
+      echo "ubuntu:ubuntu" | chpasswd
+      
+      # Grant passwordless sudo to ubuntu for Ansible
+      echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu
+      chmod 0440 /etc/sudoers.d/ubuntu
 
-      # Fetch OpenBao SSH Client CA public key (unauthenticated endpoint)
-      echo "Fetching CA public key from OpenBao..."
-      curl -k -s https://openbao.openbao.svc:8200/v1/ssh-client-signer/public_key > /etc/ssh/trusted-user-ca-keys.pem
+      # Ensure user ssh directories exist with proper permissions for key bootstrap
+      mkdir -p /home/ubuntu/.ssh
+      chown ubuntu:ubuntu /home/ubuntu/.ssh
+      chmod 700 /home/ubuntu/.ssh
 
-      if [ ! -s /etc/ssh/trusted-user-ca-keys.pem ]; then
-        echo "Error: Failed to fetch CA public key!"
-        exit 1
-      fi
-
-      echo "Successfully fetched CA public key:"
-      cat /etc/ssh/trusted-user-ca-keys.pem
-
-      # Configure sshd to trust the CA public key
-      echo "TrustedUserCAKeys /etc/ssh/trusted-user-ca-keys.pem" >> /etc/ssh/sshd_config
+      # Enable Password Authentication in sshd_config for initial ansible connection
+      sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
       echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+
+      # Create a mock service helper for Ansible service module compatibility in container
+      echo '#!/bin/sh' > /usr/sbin/service
+      echo 'echo "Mock service helper called: $@"' >> /usr/sbin/service
+      echo 'if [ "$1" = "ssh" ] || [ "$2" = "ssh" ]; then' >> /usr/sbin/service
+      echo '  PID=$(cat /var/run/sshd.pid 2>/dev/null || pgrep -o sshd)' >> /usr/sbin/service
+      echo '  if [ -n "$PID" ]; then' >> /usr/sbin/service
+      echo '    echo "Sending SIGHUP to sshd (PID $PID) to reload configuration..."' >> /usr/sbin/service
+      echo '    kill -HUP "$PID"' >> /usr/sbin/service
+      echo '  else' >> /usr/sbin/service
+      echo '    echo "sshd not running or PID not found."' >> /usr/sbin/service
+      echo '  fi' >> /usr/sbin/service
+      echo 'fi' >> /usr/sbin/service
+      echo 'exit 0' >> /usr/sbin/service
+      chmod +x /usr/sbin/service
+
+      # Mock init script too in case Ansible uses it
+      mkdir -p /etc/init.d
+      ln -sf /usr/sbin/service /etc/init.d/ssh
 
       # Start sshd in the foreground with verbose logs
       echo "Starting SSH server..."
